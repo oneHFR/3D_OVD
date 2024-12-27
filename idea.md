@@ -1,30 +1,39 @@
 # **1. LIST**
-
+- MaskCLIP需要考虑的掩码输入是否完全  
+- 最近一次的结果和论文差距还是很大 仔细去看每一个scene的实际mask是杂乱的 不知道是不是我跑的问题 代码不动 single scene 检验一下！  
+- CLIP分隔遗漏问题 这里的多尺度是不是需要输入的mask来调节，也就是SAM需要做到全方位覆盖？ 这里的取点策略是不是要重新设计  
+- 模型复杂度直线上升  
 
 
 
 # **2. 待解决问题**
-- 数据集里面的3D 是扫描出来的 还是渲染出来的 扫出来的
-- It is a collection of labeled voxels rather than points or objects. This dataset is marked in 20 classes of annotated 3D voxelized objects
-- OpenIns里面说的 rendering耗时长 但是 PointCLIP里面也没有涉及到渲染的
-- 为什么OpenMask3D里面的text query是模糊抽象的 不是围绕着label展开的？
-- 为什么数据集都不使用 颜色？ 如果3d里面使用颜色会怎么样？ 3D里面无法得到第一手颜色信息？所以说明3D里面的重建是 计算出来的 不是扫描出来的
-- 如果三维场里面的点颜色都是一个颜色 对于分割识别话会有影响吗？扫描的得到的点没有颜色的
-- 超点的含义是什么？
-- 所有3D OVD任务的评估标准是 acc 和 IoU具体指的是什么？
+- ~~数据集里面的3D 是扫描出来的 还是渲染出来的 or扫出来的~~ 【重建出来的 按道理来说像素和point之间的关系很线性】
+- ~~It is a collection of labeled voxels rather than points or objects. This dataset is marked in 20 classes of annotated 3D voxelized objects~~ 【原始的数据集文件里面说明了label选取的数据格式】
+- **【】OpenIns里面说的 rendering耗时长 但是 PointCLIP里面也没有涉及到渲染的 【这篇到底哪里用了MaskCLIP？】**
+- ~~为什么OpenMask3D里面的text query是模糊抽象的 不是围绕着label展开的？~~
+- **~~为什么数据集都不使用 颜色？ 如果3d里面使用颜色会怎么样？~~[Mask3D里面使用了颜色 / 颜色和像素是否有一致性]** 3D里面无法得到第一手颜色信息？所以说明3D里面的重建是 计算出来的 不是扫描出来的
+- ~~如果三维场里面的点颜色都是一个颜色 对于分割识别话会有影响吗？扫描的得到的点没有颜色的~~
+- **【】超点的含义是什么？**
+- ~~所有3D OVD任务的评估标准是 acc 和 IoU具体指的是什么？~~
 - OpenMask3D
-  - 120 201关系是什么？
-  - 为什么最后是 120 → 222 (还是200 201 222？) 好像是经过DBSCAN拆分了一下 增加到了222 确保空间连续性
-  - 237360 是如何 164826是怎么减少的？ 体素化 还是离散化？目前判断应该是体素
-- 通过实际的结果反推改进方法是不是有点蠢？
-- 可见点的存在，在哪几个环节又作用影响
-- 数据集获取
-- 下一次跑的时候把image的原始index标上 便于判断crop的主要对象
+  - ~~120 201关系是什么？~~【查询数量决定mask数量】
+  - ~~为什么最后是 120 → 222 (还是200 201 222？) 好像是经过DBSCAN拆分了一下 增加到了222 确保空间连续性~~
+  - ~~237360 是如何 164826是怎么减少的？ 体素化 还是离散化？目前判断应该是体素~~
+- **【】可见点的存在，在哪几个环节又作用影响**
+- **【】数据集官方渠道获取**
+- ~~下一次跑的时候把image的原始index标上 便于判断crop的主要对象~~
   
-```python
-  if(save_crops):
-      cropped_img.save(os.path.join(out_folder, f"crop{mask}_{view}_{level}.png"))
-```
+**Idea updates**
+- 虚化残影的照片对识别是否有影响？这个只需要加一个滤镜应该就可以解决
+- 扩大系数已经达到全幅上限
+- 物体所占像素面积和sam结果完全不匹配 比如一个小的mask 投入的点到2D上的像素box region和sam候的region 比例失衡 这个时候如何处理
+- 多角度好？还是角度变化幅度小一些一致性高一些好？对于同一个mask？ 【是否可以采取筛选机制】
+- 重叠性问题如何解决？如果重叠过多能不能删除？ 角度相机坐标相近删除类似的 简化 计算
+- 有一个双主角的难题？看到一个mask的crop结果其中看图片是完全不知道谁是主角的，所以这里一方面是mask质量不到导致的，一个是小物体 被喧宾夺主了 **CLIP同步输入mask？ but计算量增加 yolo3D 3DIns就这个**
+- 需要完全的数据集去看一下inference的单项物体成绩 【目前来看 跑的结果差距很大】
+- 221 220 < 0.6 sam分数低的mask 但是其他视角的分数还可以 所以 需不需要abort
+- IoU较低 和 gt_label的实例差距会归咎于哪些地方？ 【看全局的结果 一个场景的一个场景的查】
+- 蒸馏 V 我来看看~ 回去最后输出的性能算法 evaluation 
 
 
 # **3. 1203 Ideas**
@@ -380,3 +389,87 @@ Network针对不同密度的提取
 
 
 
+# 1214 debug200
+看起来问题出在 PCDC (Per-Category Detection Coverage) 分数的计算上。错误显示 `pcdc_scores` 是一维数组，但代码尝试用二维索引访问它。让我修改相关代码：
+
+1. 首先修改 `evaluate_matches` 函数中 PCDC 分数的计算部分：
+
+```python
+def evaluate_matches(matches):
+    # ... 前面的代码保持不变 ...
+    
+    # 修改 PCDC 分数的计算
+    pcdc_scores = []
+    d_inf = 0
+    for scene_name in gt_category_names.keys():
+        # 改为只计算一个维度的分数
+        scene_score = np.mean([len(matched_predictions_category_names[d_inf][oid][scene_name])/len(gt_category_names[scene_name]) 
+                             for oid in matched_predictions_category_names[d_inf].keys()])
+        pcdc_scores.append(scene_score)
+    pcdc_scores = np.asarray(pcdc_scores)  # 现在是一维数组
+
+    return ap, ar, rc, pcdc_scores
+```
+
+2. 然后修改 `compute_averages_pcdc` 函数：
+
+```python
+def compute_averages_pcdc(pcdc_scores):
+    avg_dict = {}
+    
+    # 因为 pcdc_scores 是一维的，直接计算平均值
+    avg_dict['all_pcdc'] = np.nanmean(pcdc_scores)
+    avg_dict['all_pcdc_50%'] = np.nanmean(pcdc_scores)  # 如果需要不同阈值的结果
+    avg_dict['all_pcdc_25%'] = np.nanmean(pcdc_scores)  # 如果需要不同阈值的结果
+    
+    return avg_dict
+```
+
+这些修改：
+1. 简化了 PCDC 分数的计算，使其保持一维
+2. 移除了对二维索引的使用
+3. 直接计算所有场景的平均 PCDC 分数
+
+如果你还需要保持不同重叠阈值的分数，我们可以修改为：
+
+```python
+def evaluate_matches(matches):
+    # ... 前面的代码保持不变 ...
+    
+    # 修改 PCDC 分数的计算，保持不同重叠阈值的结果
+    pcdc_scores = []
+    d_inf = 0
+    for oid in matched_predictions_category_names[d_inf].keys():
+        scores_for_threshold = []
+        for scene_name in gt_category_names.keys():
+            if len(gt_category_names[scene_name]) > 0:  # 防止除零
+                score = len(matched_predictions_category_names[d_inf][oid][scene_name]) / len(gt_category_names[scene_name])
+                scores_for_threshold.append(score)
+        pcdc_scores.append(np.mean(scores_for_threshold))
+    pcdc_scores = np.asarray(pcdc_scores)  # 现在是一维数组，每个元素对应一个重叠阈值
+
+    return ap, ar, rc, pcdc_scores
+```
+
+然后对应的 `compute_averages_pcdc` 函数：
+
+```python
+def compute_averages_pcdc(pcdc_scores):
+    avg_dict = {}
+    
+    # 假设 pcdc_scores 的顺序对应 [>25%, >50%, 25%] 的阈值
+    if len(pcdc_scores) >= 3:
+        avg_dict['all_pcdc'] = pcdc_scores[0]      # >25% 阈值
+        avg_dict['all_pcdc_50%'] = pcdc_scores[1]  # >50% 阈值
+        avg_dict['all_pcdc_25%'] = pcdc_scores[2]  # 25% 阈值
+    else:
+        # 如果没有足够的分数，所有指标使用同一个值
+        avg_value = np.nanmean(pcdc_scores)
+        avg_dict['all_pcdc'] = avg_value
+        avg_dict['all_pcdc_50%'] = avg_value
+        avg_dict['all_pcdc_25%'] = avg_value
+    
+    return avg_dict
+```
+
+这样修改应该能解决维度不匹配的问题。让我知道如果你需要进一步的调整或者有任何问题。
